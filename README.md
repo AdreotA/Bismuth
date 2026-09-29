@@ -6,3 +6,6 @@ for maximum performance.
 Currently experimental
 
 <img src="logo.png" alt="Bismuth logo" width="100"/>
+
+**THIS PROJECT CANNOT BE USED UNDER ANY CIRCUMSTANCES TO FACILITATE OR ADVANCE
+GEOMETRY DASH LEVEL GENERATION USING GENERATIVE AI.**
