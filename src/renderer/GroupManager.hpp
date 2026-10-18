@@ -3,7 +3,7 @@
 #include <Geode/binding/GameObject.hpp>
 #include <common.hpp>
 #include <span>
-#include "../../resources/shaders/shared.h"
+#include "../../resources/shaders/headers/shared.h"
 #include "Buffer.hpp"
 
 /*
@@ -48,7 +48,7 @@ public:
         : GroupCombination(object->m_groups, object->m_groupCount) {}
 
     // This function is important for this class to be used as a key in std::map
-    inline bool operator<(const GroupCombination& o) const {
+    GEODE_INLINE bool operator<(const GroupCombination& o) const {
         if (count < o.count) return true;
         if (count > o.count) return false;
 
@@ -59,15 +59,15 @@ public:
         return false;
     }
 
-    inline std::span<GroupID> getSpan() {
+    GEODE_INLINE std::span<GroupID> getSpan() {
         return std::span<GroupID>(ids.data(), &ids[count]);
     }
 
-    inline std::span<const GroupID> getSpan() const {
+    GEODE_INLINE std::span<const GroupID> getSpan() const {
         return std::span<const GroupID>(ids.data(), &ids[count]);
     }
 
-    inline i32 getCount() const { return count; }
+    GEODE_INLINE i32 getCount() const { return count; }
 
     operator std::string() const;
 

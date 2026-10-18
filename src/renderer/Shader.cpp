@@ -41,6 +41,11 @@ void printErrorLog(std::string str) {
 */
 class CustomIncluder : public glslang::TShader::Includer {
 public:
+    ~CustomIncluder() {
+        for (auto res : results)
+            delete res;
+    }
+
     IncludeResult* includeLocal(
         const char* headerName,
         const char* includerName,
@@ -53,15 +58,15 @@ public:
         }
 
         headerSources.push_back(res.value());
-        results.push_back(IncludeResult (headerName, headerSources.back().c_str(), headerSources.back().size(), nullptr));
+        results.push_back(new IncludeResult(headerName, headerSources.back().c_str(), headerSources.back().size(), nullptr));
 
-        return &results.back();
+        return results.back();
     }
 
     void releaseInclude(IncludeResult*) override {}
 
 private:
-    std::vector<IncludeResult> results;
+    std::vector<IncludeResult*> results;
     std::vector<std::string> headerSources;
 };
 
@@ -105,8 +110,14 @@ static std::optional<std::string> preprocessShader(EShLanguage stage, const std:
     auto res = getDefaultResources();
     std::string codeOut;
     if (!shader->preprocess(&res, 110, ENoProfile, false, false, EShMsgDefault, &codeOut, includer)) {
-        const char* shaderType = (stage == EShLangFragment) ? "fragment" : "vertex";
-        geode::log::error("failed to compile {} shader (glslang):", shaderType);
+        const char* shaderType;
+        switch (stage) {
+        case EShLangVertex: shaderType = "vertex"; break;
+        case EShLangFragment: shaderType = "fragment"; break;
+        case EShLangCompute: shaderType = "compute"; break;
+        default: shaderType = "<unkown>"; break;
+        }
+        log::error("failed to preprocess {} shader (glslang):", shaderType);
         printErrorLog(shader->getInfoLog());
         return std::nullopt;
     }
@@ -119,25 +130,22 @@ static std::optional<std::string> preprocessShader(EShLanguage stage, const std:
     return "#version 460\n" + codeOut;
 }
 
-static std::optional<ShaderSources> preprocessProgram(const fs::path& vertexPath, const fs::path& fragmentPath, std::string preCode) {
-    auto vertexSource   = readResourceFile(vertexPath);
-    auto fragmentSource = readResourceFile(fragmentPath);
+static std::optional<std::string> preprocessShader(const fs::path& path, std::string preCode, EShLanguage stage) {
+    log::info("a {} {}", path, (int)stage);
 
-    if (!vertexSource)
-        geode::log::error("could not find vertex shader at path: {}", vertexPath);
-    if (!fragmentSource)
-        geode::log::error("could not find fragment shader at path: {}", fragmentPath);
-    if (!vertexSource || !fragmentSource)
+    auto source = readResourceFile(path);
+    if (!source) {
+        geode::log::error("could not find shader at path: {}", path);
         return std::nullopt;
+    }
+    
+    auto shader = preprocessShader(stage, preCode + source.value(), path.string());
+    if (!shader) return std::nullopt;
 
-    auto vertexShader = preprocessShader(EShLangVertex, preCode + vertexSource.value(), vertexPath.string());
-    if (!vertexShader) return std::nullopt;
-
-    auto fragmentShader = preprocessShader(EShLangFragment, preCode + fragmentSource.value(), fragmentPath.string());
-    if (!fragmentShader) return std::nullopt;
-
-    return ShaderSources { vertexShader.value(), fragmentShader.value() };
+    return shader.value();
 }
+
+#define GL_COMPUTE_SHADER 0x91B9
 
 static u32 createShader(i32 type, const char* source) {
     u32 shader = glCreateShader(type);
@@ -149,7 +157,12 @@ static u32 createShader(i32 type, const char* source) {
     if (!success) {
         char log[512];
         glGetShaderInfoLog(shader, 512, NULL, log);
-        const char* shaderType = (type == GL_FRAGMENT_SHADER) ? "fragment" : "vertex";
+        const char* shaderType;
+        switch (type) {
+        case GL_VERTEX_SHADER: shaderType = "vertex"; break;
+        case GL_FRAGMENT_SHADER: shaderType = "fragment"; break;
+        case GL_COMPUTE_SHADER: shaderType = "compute"; break;
+        }
         geode::log::error("failed to compile {} shader:", shaderType);
         printErrorLog(log);
         return 0;
@@ -192,20 +205,89 @@ Shader* Shader::create(const ShaderSources& sources) {
     return shader;
 }
 
+static u32 createShaderProgram(const std::vector<u32>& shaders) {
+    u32 program = glCreateProgram();
+    for (auto shader : shaders)
+        glAttachShader(program, shader);
+    glLinkProgram(program);
+
+    int success;
+    glGetProgramiv(program, GL_LINK_STATUS, &success);
+    if (!success) {
+        char log[512];
+        glGetProgramInfoLog(program, 512, NULL, log);
+        geode::log::error("Failed to link shader program:");
+        printErrorLog(log);
+        glDeleteProgram(program);
+        return 0;
+    }
+
+    return program;
+}
+
+static inline std::string generatePreCode(std::map<std::string, std::string> macroVariables) {
+    std::string preCode = "#define GLSL\n";
+    for (auto [k, v] : macroVariables)
+        preCode += "#define " + k + " " + v + "\n";
+    return preCode;
+}
+
 Shader* Shader::create(
     const fs::path& vertexPath,
     const fs::path& fragmentPath,
     std::map<std::string, std::string> macroVariables
 ) {
-    std::string preCode = "#define GLSL\n";
-    for (auto [k, v] : macroVariables)
-        preCode += "#define " + k + " " + v + "\n";
+    auto preCode = generatePreCode(macroVariables);
 
-    auto sources = preprocessProgram(vertexPath, fragmentPath, preCode);
-    if (!sources)
+    auto vertexSource   = preprocessShader(vertexPath, preCode, EShLangVertex);
+    auto fragmentSource = preprocessShader(fragmentPath, preCode, EShLangFragment);
+
+    if (!vertexSource || !fragmentSource)
         return nullptr;
 
-    return create(sources.value());
+    u32 vertexShader   = createShader(GL_VERTEX_SHADER, vertexSource.value().c_str());
+    u32 fragmentShader = createShader(GL_FRAGMENT_SHADER, fragmentSource.value().c_str());
+
+    if (!vertexShader || !fragmentShader) {
+        if (vertexShader)   glDeleteShader(vertexShader);
+        if (fragmentShader) glDeleteShader(fragmentShader);
+        return nullptr;
+    }
+
+    u32 program = createShaderProgram({vertexShader, fragmentShader});
+
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+
+    if (program == 0)
+        return nullptr;
+
+    Shader* shader = new Shader();
+    shader->program = program;
+    return shader;
+}
+
+Shader* Shader::createCompute(const fs::path& path, std::map<std::string, std::string> macroVariables) {
+    auto preCode = generatePreCode(macroVariables);
+
+    auto source = preprocessShader(path, preCode, EShLangCompute);
+    if (!source)
+        return nullptr;
+
+    u32 shader = createShader(GL_COMPUTE_SHADER, source.value().c_str());
+    if (!shader)
+        return nullptr;
+
+    u32 program = createShaderProgram({shader});
+
+    glDeleteShader(shader);
+
+    if (program == 0)
+        return nullptr;
+
+    Shader* ret = new Shader();
+    ret->program = program;
+    return ret;
 }
 
 void Shader::setMatrix4(u32 location, const float* data) {

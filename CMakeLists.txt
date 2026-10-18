@@ -26,7 +26,8 @@ file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS src/*.cpp)
 add_library(${PROJECT_NAME} SHARED ${SOURCES})
 
 # Not sure about this...............
-set(CMAKE_BUILD_TYPE Release)
+set(CMAKE_BUILD_TYPE RelWithDebInfo)
+# set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
 # Libraries
 set(ENABLE_OPT 0)

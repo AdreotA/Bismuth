@@ -17,7 +17,6 @@ void ObjectBatchNode::draw() {
     auto renderer = Renderer::get();
 
     auto shader = renderer->prepareDraw();
-    shader->setUInt("u_spriteSheet", (u32)layerId.spriteSheet);
     shader->setTexture("u_spriteSheetTexture", 0, spriteSheetTexture);
 
     glEnable(GL_BLEND);
@@ -26,7 +25,7 @@ void ObjectBatchNode::draw() {
     else
         glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 
-    renderer->getObjectBatch().draw(drawCall);
+    renderer->getObjectBatch().draw(layerId);
 
     renderer->finishDraw();
     profiler::functionPop();

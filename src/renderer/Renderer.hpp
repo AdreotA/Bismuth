@@ -9,11 +9,12 @@
 #include "OverdrawView.hpp"
 #include "Shader.hpp"
 #include <unordered_map>
+#include <array>
 
 #include "DifferenceMode.hpp"
 #include "GroupManager.hpp"
 #include "ObjectBatchNode.hpp"
-#include "../../resources/shaders/shared.h"
+#include "../../resources/shaders/headers/shared.h"
 
 using namespace geode;
 
@@ -24,7 +25,7 @@ private:
           overdrawView(*this) {}
     ~Renderer() override;
 
-    bool init(PlayLayer* layer);
+    bool init(PlayLayer* layer, cocos2d::CCArray* objects);
 
     void generateBatchNodes();
 
@@ -34,11 +35,20 @@ private:
 
     void prepareColorChannelBuffer();
 
-    void generateStaticRenderingBuffer(ObjectSorter& sorter);
+    void generateStaticRenderingBuffer(std::vector<GameObject*>& objects);
 
     void draw() override;
 
+    void finish();
+
     void updateDebugText();
+
+    void bindCullingComputeShaderBuffers();
+
+    void fetchBlendingStates();
+
+    friend class FinishNode;
+    friend class ObjectBatch;
 
 protected:
     Shader* prepareDraw();
@@ -51,9 +61,11 @@ protected:
 public:
     void update(float dt) override;
 
-    bool isColorChannelBlending(i32 channel);
-
     cocos2d::CCSpriteBatchNode* getSpriteBatchNodeWithLayerId(LayerKey id);
+
+    inline bool isColorChannelBlending(i32 channel) {
+        return colorChannelsIsBlending[channel];
+    }
 
     inline cocos2d::CCTexture2D* getSpriteSheetTexture(SpriteSheet sheet) {
         if ((i32)sheet < 0 || (i32)sheet >= (i32)SpriteSheet::COUNT)
@@ -95,6 +107,10 @@ public:
 
     inline ObjectBatch& getObjectBatch() { return objectBatch; }
 
+    inline Shader* getCullingComputeShader() const {
+        return cullingComputeShader;
+    }
+
     bool useOptimizations();
 
     void setEnabled(bool enabled);
@@ -106,7 +122,7 @@ public:
     void drawLine(const glm::vec2& p1, const glm::vec2& p2, const glm::vec4& color);
 
 public:
-    static Ref<Renderer> create(PlayLayer* layer);
+    static Ref<Renderer> create(PlayLayer* layer, cocos2d::CCArray* objects);
 
     /**
      * Returns the current renderer. If the game
@@ -129,11 +145,15 @@ private:
 
     std::unordered_map<GameObject*, usize> objectSRBIndicies;
 
+    u32 timeElapsedQuery = 0;
+
     glm::vec2 cameraCenterPos;
 
     std::vector<ObjectBatchNode*> batchNodes;
 
     cocos2d::CCTexture2D* spriteSheets[(i32)SpriteSheet::COUNT] = { nullptr };
+
+    std::array<bool, 1101> colorChannelsIsBlending;
 
     Ref<cocos2d::CCLabelBMFont> debugText;
     Ref<cocos2d::CCLabelBMFont> debugTextOutline1;
@@ -144,14 +164,15 @@ private:
     ObjectBatch objectBatch;
     Shader* shader = nullptr;
     Shader* basicShader = nullptr;
+    Shader* cullingComputeShader = nullptr;
 
     ColorChannelBuffer* colorChannelBuffer;
     Buffer* colorChannelBufferObject = nullptr;
 
     Buffer* srbBuffer = nullptr;
 
-    RendererUniformBuffer uniforms;
-    Buffer* uniformBuffer = nullptr;
+    GameStateBuffer gameState;
+    Buffer* gameStateBuffer = nullptr;
 
     bool differenceModeEnabled = false;
     DifferenceMode differenceMode;

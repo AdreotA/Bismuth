@@ -107,13 +107,13 @@ void functionPop() {
 }
 
 #include <Geode/modify/CCSprite.hpp>
-_PROFILER_HOOK_VOID(cocos2d::CCSprite, updateTransform);
-_PROFILER_HOOK_VOID(cocos2d::CCSprite, setColor, const cocos2d::ccColor3B&);
-_PROFILER_HOOK_VOID(cocos2d::CCSprite, setOpacity, unsigned char);
+// _PROFILER_HOOK_VOID(cocos2d::CCSprite, updateTransform);
+// _PROFILER_HOOK_VOID(cocos2d::CCSprite, setColor, const cocos2d::ccColor3B&);
+// _PROFILER_HOOK_VOID(cocos2d::CCSprite, setOpacity, unsigned char);
 
 #include <Geode/modify/CCNodeRGBA.hpp>
-_PROFILER_HOOK_VOID(cocos2d::CCNodeRGBA, setColor, const cocos2d::ccColor3B&);
-_PROFILER_HOOK_VOID(cocos2d::CCNodeRGBA, updateDisplayedColor, const cocos2d::ccColor3B&);
+// _PROFILER_HOOK_VOID(cocos2d::CCNodeRGBA, setColor, const cocos2d::ccColor3B&);
+// _PROFILER_HOOK_VOID(cocos2d::CCNodeRGBA, updateDisplayedColor, const cocos2d::ccColor3B&);
 
 #include <Geode/modify/CCDisplayLinkDirector.hpp>
 _PROFILER_HOOK_VOID(cocos2d::CCDisplayLinkDirector, mainLoop);
@@ -130,9 +130,13 @@ _PROFILER_HOOK_VOID(cocos2d::CCScene, visit);
 #include <Geode/modify/CCEGLView.hpp>
 _PROFILER_HOOK_VOID(cocos2d::CCEGLView, swapBuffers);
 
+#include <Geode/modify/PlayLayer.hpp>
+_PROFILER_HOOK_VOID(PlayLayer, updateVisibility, float);
+
 #include <Geode/modify/CCSpriteBatchNode.hpp>
-_PROFILER_HOOK_VOID(cocos2d::CCSpriteBatchNode, draw);
+// _PROFILER_HOOK_VOID(cocos2d::CCSpriteBatchNode, draw);
 
 #include <Geode/modify/GJBaseGameLayer.hpp>
 _PROFILER_HOOK_VOID(GJBaseGameLayer, update, float);
+_PROFILER_HOOK_VOID(GJBaseGameLayer, preUpdateVisibility, float);
 _PROFILER_HOOK_VOID(GJBaseGameLayer, visit);

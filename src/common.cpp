@@ -16,11 +16,8 @@ ProcGlObjectLabel glObjectLabelProc = nullptr;
 
 void glObjectLabel(GLenum id, GLuint name, GLsizei length, const char* label) {
     #ifdef GEODE_WINDOWS
-    if (!glObjectLabelProc) {
-        HMODULE mod = LoadLibraryA("opengl32.dll");
-        if (mod)
-            glObjectLabelProc = (ProcGlObjectLabel)GetProcAddress(mod, "glObjectLabel");
-    }
+    if (!glObjectLabelProc)
+        glObjectLabelProc = (ProcGlObjectLabel)wglGetProcAddress("glObjectLabel");
     if (glObjectLabelProc)
         glObjectLabelProc(id, name, length, label);
     #endif

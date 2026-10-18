@@ -3,6 +3,7 @@
 #include "glm/ext/matrix_transform.hpp"
 #include <Geode/binding/EffectGameObject.hpp>
 #include <Geode/binding/GameObject.hpp>
+#include "../profiler.hpp"
 #include <optional>
 #include <string>
 
@@ -143,7 +144,7 @@ void GroupManager::initWithObjects(cocos2d::CCArray* objects) {
     transformCombinationCount = transformCombIndex;
     log::info("Number of unique group transformations: {}", transformCombinationCount);
 
-    alphaValuesPerGroupId.resize(maxGroupId);
+    alphaValuesPerGroupId.resize(maxGroupId + 1);
     alphaValuesPerAlphaIndex.resize(alphaIndiciesCount);
 
     groupStateBuffer = Buffer::createDynamicDraw("Group state buffer", getGroupStateBufferSize());
@@ -170,6 +171,7 @@ GroupCombinationIndex GroupManager::getTransformCombinationIndexForObject(GameOb
 }
 
 void GroupManager::prepareGroupStateBuffer() {
+    profiler::functionPush("GroupManager::prepareGroupStateBuffer");
     for (u32 id = 1; id <= maxGroupId; id++) {
         if (!disabledGroups.contains(id))
             alphaValuesPerGroupId[id] = renderer.getPlayLayer()->m_effectManager->opacityModForGroup(id);
@@ -190,6 +192,9 @@ void GroupManager::prepareGroupStateBuffer() {
 
     for (u32 combIndex = 0; combIndex < groupCombinationCount; combIndex++)
         groupStates[combIndex].opacity = alphaValuesPerAlphaIndex[alphaIndiciesPerGroupCombinationIndex[combIndex]];
+
+    groupStateBuffer->flush(0, groupStateBuffer->getSize());
+    profiler::functionPop();
 }
 
 void GroupManager::moveGroup(GroupID groupId, float deltaX, float deltaY) {

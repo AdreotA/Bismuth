@@ -23,6 +23,8 @@ public:
         std::map<std::string, std::string> macroVariables = {}
     );
 
+    static Shader* createCompute(const fs::path& path, std::map<std::string, std::string> macroVariables = {});
+
     static inline void destroy(Shader* shader) {
         delete shader;
     }

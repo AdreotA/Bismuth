@@ -8,6 +8,7 @@
 #include "math/ConvexPolygon.hpp"
 #include <culling/SpriteDrawMap.hpp>
 #include <string>
+#include "../profiler.hpp"
 
 using namespace geode::prelude;
 
@@ -95,9 +96,8 @@ void ObjectBatch::prepareSpriteMeshWrite(
     currentSpriteVertexTransforms    = getSpriteVertexTransform(sprite, transform, spriteSheet);
     currentSpriteObjectStartPosition = ccPointToGLM(object->m_startPosition);
 
-    currentSpriteSRBIndex     = renderer.getObjectSRBIndex(object);
-    currentSpriteColorChannel = colorChannel;
-    currentSpriteVertexIndex  = verticies.size();
+    currentSpriteSRBIndex    = renderer.getObjectSRBIndex(object);
+    currentSpriteVertexIndex = verticies.size();
 }
 
 void ObjectBatch::writeSpriteVertex(glm::vec2 pos) {
@@ -115,8 +115,7 @@ void ObjectBatch::writeSpriteVertex(glm::vec2 pos) {
                       transforms.texCoordUp    * pos.y +
                       transforms.texCoordBottomLeft;
 
-    vertex.srbIndex     = currentSpriteSRBIndex;
-    vertex.colorChannel = currentSpriteColorChannel;
+    vertex.spriteIndex = currentSpriteIndex;
 }
 
 void ObjectBatch::writeSpriteIndex(u32 index) {
@@ -144,13 +143,20 @@ void ObjectBatch::addSprite(
     SpriteType type,
     const cocos2d::CCAffineTransform& transform
 ) {
+    log::info("type {}", (int)type);
+
+    if (object->m_hasNoGlow && type == SpriteType::GLOW)
+        return;
+
     prepareSpriteMeshWrite(object, sprite, type, transform);
 
-    usize indiciesBegin = indicies.size();
+    usize indexStart = indicies.size();
 
     ConvexList* spriteMesh = SpriteMeshDictionary::getSpriteMeshForSprite(sprite);
 
     drawMap.addSprite(object, sprite, type, {});
+
+    currentSpriteIndex = inputSprites.size();
 
     if (spriteMesh) {
         writeSpriteMeshFromConvexList(*spriteMesh);
@@ -168,7 +174,22 @@ void ObjectBatch::addSprite(
         writeSpriteIndex(QUAD_BR);
     }
 
-    visibilityManager.addObjectSprite(sprite, type, indiciesBegin, indicies.size());
+    usize indexCount = indicies.size() - indexStart;
+
+    inputSprites.push_back({
+        .objectIndex = (u32)currentSpriteSRBIndex,
+        .spriteType = (u32)type,
+        .indexStart = (u32)indexStart,
+        .indexCount = (u32)indexCount
+    });
+
+    ZLayer zLayer = object->getObjectZLayer();
+    SpriteSheet spriteSheet = ObjectUtils::getSpritesheetOfObject(object, type);
+
+    usedLayerKeys.insert({zLayer, spriteSheet, false});
+    usedLayerKeys.insert({zLayer, spriteSheet, true});
+
+    spriteSorter.addSprite(object, sprite, type, currentSpriteIndex, indexCount);
 }
 
 void ObjectBatch::writeGameObject(GameObject* object) {
@@ -180,8 +201,6 @@ void ObjectBatch::writeGameObject(GameObject* object) {
         object->setScaleY(object->m_scaleY);
     }
 
-    visibilityManager.prepareForObject(object);
-
     ObjectUtils::unpackObjectIntoSprites(object, [&](const UnpackedSprite& sprite) {
         addSprite(sprite.parentObject, sprite.sprite, sprite.type, sprite.transform);
     });
@@ -191,48 +210,111 @@ void ObjectBatch::writeGameObject(GameObject* object) {
 }
 
 void ObjectBatch::finishWriting() {
+    assert(vertexBuffer == nullptr);
+
     storeGLStates();
 
+    /*
     auto layers = visibilityManager.getUsedLayerIds();
     for (auto& layerId : layers)
         layerDrawCalls.push_back({ layerId, visibilityManager.getLayer(layerId), 0, 0 });
 
     visibilityManager.generateFastStructures();
-
-    if (vertexBuffer) {
-        Buffer::destroy(vertexBuffer);
-        vertexBuffer = nullptr;
-    }
-
-    if (indexBuffer) {
-        Buffer::destroy(indexBuffer);
-        indexBuffer = nullptr;
-    }
+    */
 
     // log::info("ORDER SET COUNT {}", drawMap.orderSetsCount());
 
     vertexCount = verticies.size();
     indexCount  = indicies.size();
 
-    vertexBuffer = Buffer::createStaticDraw("Object vertex buffer", verticies.data(), vertexCount * sizeof(ObjectVertex));
-    culledIndicies.resize(indexCount);
-    indexBuffer = Buffer::createDynamicDraw("Object index buffer", indexCount * sizeof(u32));
+    vertexBuffer      = Buffer::createStaticDraw("Object vertex buffer", verticies.data(), vertexCount * sizeof(ObjectVertex));
+    indexBuffer       = Buffer::createStaticDraw("Object index buffer", indicies.data(), indexCount * sizeof(u32));
+    inputSpriteBuffer = Buffer::createStaticDraw("Input sprite buffer", inputSprites.data(), inputSprites.size() * sizeof(InputSprite));
+
+    rawSpriteBuffer   = Buffer::createGPUExclusive("Raw sprite buffer", inputSprites.size() * sizeof(RawSprite));
+    culledIndexBuffer = Buffer::createGPUExclusive("Culled index buffer", indexCount * sizeof(u32));
+
+    spriteSorter.sortForCurrentBlendingStates();
+    sortedBatch = spriteSorter.generateSortedBatch();
 
     verticies.clear();
+    indicies.clear();
+    inputSprites.clear();
     
     prepareVAO();
     restoreGLStates();
 }
 
-void ObjectBatch::predraw(const CameraView& view) {
-    auto timer = BProfiler::start("Calculate visibilities");
-    visibilityManager.calculateVisibilitiesForCameraView(view);
-    timer.end();
+typedef void (*PFNGLMULTIDRAWELEMENTSINDIRECTPROC)(GLenum mode, GLenum type, const void * indirect, GLsizei drawcount, GLsizei stride);
+static PFNGLMULTIDRAWELEMENTSINDIRECTPROC glMultiDrawElementsIndirect;
+typedef void (*PFNGLDISPATCHCOMPUTEPROC)(GLuint num_groups_x, GLuint num_groups_y, GLuint num_groups_z);
+static PFNGLDISPATCHCOMPUTEPROC glDispatchCompute = nullptr;
 
-    timer = BProfiler::start("Generate indicies");
+void ObjectBatch::draw(const LayerKey& layer) {
+    /*
+    log::info("yjdtyjdtyjdtyjdtyj {} {} {}", (int)layer.zlayer, (int)layer.spriteSheet, layer.blending);
+    for (auto& [a, b] : sortedBatch->workGroupRangePerLayerKey)
+        log::info("- {} {} {}", (int)a.zlayer, (int)a.spriteSheet, a.blending);
+    */
 
+    // log::info("PREDRAW {}", layer.toString());
+
+    if (!sortedBatch->workGroupRangePerLayerKey.contains(layer))
+        return;
+
+    // log::info("sytjsdtukf---");
+
+    const auto& range = sortedBatch->workGroupRangePerLayerKey[layer];
+
+    if (!glMultiDrawElementsIndirect)
+        glMultiDrawElementsIndirect = (PFNGLMULTIDRAWELEMENTSINDIRECTPROC)wglGetProcAddress("glMultiDrawElementsIndirect");
+
+    std::vector<u32> kog;
+    kog.resize(sortedBatch->drawCommandBuffer->getSize() / 4, 0);
+
+    sortedBatch->drawCommandBuffer->read(kog.data(), kog.size() * 4, 0);
+
+    /*
+    for (auto s : kog)
+        log::info("dc {}", s);
+    log::info("--");
+    */
+
+    sortedBatch->bindBuffers();
+    prepareCullingComputeShader();
+    renderer.bindCullingComputeShaderBuffers();
+    sortedBatch->drawCommandBuffer->bindAs(GL_DRAW_INDIRECT_BUFFER);
+    glBindVertexArray(vao);
+    culledIndexBuffer->bindAs(GL_ELEMENT_ARRAY_BUFFER);
+
+    glMultiDrawElementsIndirect(
+        GL_TRIANGLES,
+        GL_UNSIGNED_INT,
+        (void*)(range.offset * sizeof(int) * 5),
+        range.count,
+        sizeof(int) * 5
+    );
+}
+
+void ObjectBatch::predraw() {
+    profiler::functionPush("ObjectBatch::predraw");
+    
+    Shader* computeShader = renderer.getCullingComputeShader();
+
+    computeShader->use();
+
+    prepareCullingComputeShader();
+    renderer.bindCullingComputeShaderBuffers();
+    sortedBatch->bindBuffers();
+
+    if (!glDispatchCompute)
+        glDispatchCompute = (PFNGLDISPATCHCOMPUTEPROC)wglGetProcAddress("glDispatchCompute");
+
+    glDispatchCompute(sortedBatch->workGroupCount, 1, 1);
+
+    /*
     usize index = 0;
-
+    
     for (auto& drawCall : layerDrawCalls) {
         drawCall.startIndex = index;
         
@@ -244,15 +326,21 @@ void ObjectBatch::predraw(const CameraView& view) {
 
         drawCall.indexCount = index - drawCall.startIndex;
     }
+    */
 
     // log::info("INDICIES COUNT {}", index);
     // for (i32 i = 0; i < index; i++)
     //     log::info("INDEX {}", culledIndicies[i]);
 
+    /*
     culledIndexCount = index;
-    indexBuffer->write(culledIndicies.data(), culledIndexCount * sizeof(u32));
+    if (culledIndicies.size())
+        indexBuffer->write(culledIndicies.data(), culledIndexCount * sizeof(u32));
+    */
 
-    timer.end();
+
+
+    profiler::functionPop();
 }
 
 ObjectBatch::LayerDrawCall* ObjectBatch::getDrawCall(const LayerKey& id) {
@@ -269,6 +357,13 @@ void ObjectBatch::draw(LayerDrawCall* drawCall) {
 
     bind();
     glDrawElements(GL_TRIANGLES, drawCall->indexCount, GL_UNSIGNED_INT, (void*)(drawCall->startIndex * sizeof(u32)));
+}
+
+void ObjectBatch::prepareCullingComputeShader() {
+    indexBuffer->bindAsStorageBuffer(INPUT_INDEX_BUFFER_BINDING);
+    inputSpriteBuffer->bindAsStorageBuffer(INPUT_SPRITE_BUFFER_BINDING);
+    rawSpriteBuffer->bindAsStorageBuffer(RAW_SPRITE_BUFFER_BINDING);
+    culledIndexBuffer->bindAsStorageBuffer(CULLED_INDEX_BUFFER_BINDING);
 }
 
 struct AttribTypeInfo {

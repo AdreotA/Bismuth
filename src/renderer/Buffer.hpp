@@ -28,20 +28,19 @@ public:
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, binding, id);
     }
 
+    void* map(i32 type);
+
     inline void* mapWriteOnly() {
-        bindAs(GL_ARRAY_BUFFER);
-        return glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
+        return map(GL_WRITE_ONLY);
     }
 
     inline void* mapReadWrite() {
-        bindAs(GL_ARRAY_BUFFER);
-        return glMapBuffer(GL_ARRAY_BUFFER, GL_READ_WRITE);
+        return map(GL_READ_WRITE);
     }
 
-    inline void unmap() {
-        bindAs(GL_ARRAY_BUFFER);
-        glUnmapBuffer(GL_ARRAY_BUFFER);
-    }
+    void unmap();
+
+    void flush(usize offset, usize size);
 
 public:
     static Buffer* create(const char* name, usize size, GLenum usage);
@@ -56,7 +55,8 @@ public:
     */
     inline static Buffer* createStaticDraw(const char* name, void* data, usize size) {
         auto ret = create(name, size, GL_STATIC_DRAW);
-        ret->write(data, size);
+        if (data)
+            ret->write(data, size);
         return ret;
     }
 
@@ -76,7 +76,16 @@ public:
         return create(name, size, GL_DYNAMIC_COPY);
     }
 
+    /*
+        Buffer to be written to and read from by the GPU exclusively
+    */
+    static Buffer* createGPUExclusive(const char* name, usize size) {
+        return create(name, size, GL_DYNAMIC_DRAW); // GL_DYNAMIC_DRAW for now
+    }
+
 private:
     usize size = 0;
     u32 id = 0;
+    bool shouldMap = true;
+    u8* mappedData = nullptr;
 };

@@ -5,13 +5,13 @@
 #include <Geode/binding/GameObject.hpp>
 #include <common.hpp>
 #include <functional>
-#include "../../resources/shaders/shared.h"
+#include "../../resources/shaders/headers/shared.h"
 
 enum class SpriteType {
-    BASE,
-    DETAIL,
-    BLACK,
-    GLOW
+    BASE   = 0,
+    DETAIL = 1,
+    BLACK  = 2,
+    GLOW   = 3
 };
 
 enum class SpriteSheet {
@@ -30,24 +30,24 @@ enum class SpriteSheet {
 
 #define LAYER_KEY_BLENDING 0x80
 
+const char* zLayerAsString(ZLayer zLayer);
+
+const char* spriteSheetAsString(SpriteSheet spriteSheet);
+
 struct LayerKey {
     ZLayer zlayer;
     SpriteSheet spriteSheet;
     bool blending;
 
-    inline bool operator==(const LayerKey& id) const {
-        return zlayer == id.zlayer && spriteSheet == id.spriteSheet && blending == id.blending;
-    }
-
-    inline bool operator!=(const LayerKey& id) const { return !(*this == id); }
-
-    inline bool operator<(const LayerKey& id) const {
-        if (zlayer != id.zlayer) return zlayer < id.zlayer;
-        if (spriteSheet != id.spriteSheet) return spriteSheet < id.spriteSheet;
-        return blending < id.blending;
-    }
+    auto operator<=>(const LayerKey&) const = default;
 
     u8 asNumber() const;
+
+    static LayerKey fromNumber(u8 num);
+
+    inline std::string toString() const {
+        return fmt::format("({}, {}, {})", zLayerAsString(zlayer), spriteSheetAsString(spriteSheet), blending);
+    }
 
     static inline ZLayer getNormalObjectZLayer(GameObject* object) {
         ZLayer zLayer = object->getObjectZLayer();
@@ -68,6 +68,13 @@ struct LayerKey {
     }
 };
 
+template <>
+struct std::hash<LayerKey> {
+    std::size_t operator()(const LayerKey& u) const noexcept {
+        return u.asNumber();
+    }
+};
+
 struct UnpackedSprite {
     cocos2d::CCSprite* sprite;
     GameObject* parentObject;
@@ -83,7 +90,7 @@ public:
         return type == SpriteType::GLOW ? SpriteSheet::GLOW : (SpriteSheet)object->getParentMode();
     }
 
-    static u32 getSpriteColorChannel(SpriteType type, GameObject* object, cocos2d::CCSprite* sprite) {
+    static GEODE_INLINE u32 getSpriteColorChannel(SpriteType type, GameObject* object, cocos2d::CCSprite* sprite) {
         u32 colorChannel = type == SpriteType::DETAIL ? object->m_activeDetailColorID : object->m_activeMainColorID;
 
         bool isSpriteBlack = (sprite == object) ? object->m_isObjectBlack : object->m_isColorSpriteBlack;

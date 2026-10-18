@@ -1,7 +1,11 @@
 #include "Buffer.hpp"
 
+using namespace geode::prelude;
+
 Buffer::~Buffer() {
     glDeleteBuffers(1, &id);
+    if (mappedData)
+        delete[] mappedData;
 }
 
 void Buffer::read(void* data, usize size, usize offset) {
@@ -30,6 +34,41 @@ void Buffer::write(void* data, usize size, usize offset) {
     glBindBuffer(GL_ARRAY_BUFFER, previouslyBoundBuffer);
 }
 
+void* Buffer::map(i32 type) {
+    if (mappedData) return nullptr;
+
+    if (shouldMap) {
+        bindAs(GL_ARRAY_BUFFER);
+        mappedData = (u8*)glMapBuffer(GL_ARRAY_BUFFER, type);
+    } else {
+        mappedData = new u8[size];
+    }
+    return mappedData;
+}
+
+void Buffer::unmap() {
+    if (!mappedData) return;
+
+    if (shouldMap) {
+        bindAs(GL_ARRAY_BUFFER);
+        glUnmapBuffer(GL_ARRAY_BUFFER);
+    } else {
+        delete[] mappedData;
+    }
+    mappedData = nullptr;
+}
+
+void Buffer::flush(usize offset, usize size) {
+    if (!mappedData) return;
+
+    if (shouldMap) {
+        bindAs(GL_ARRAY_BUFFER);
+        glFlushMappedBufferRange(GL_ARRAY_BUFFER, offset, size);
+    } else {
+        write(mappedData + offset, size, offset);
+    }
+}
+
 Buffer* Buffer::create(const char* name, usize size, GLenum usage) {
     u32 buffer;
     glGenBuffers(1, &buffer);
@@ -45,8 +84,9 @@ Buffer* Buffer::create(const char* name, usize size, GLenum usage) {
     glBindBuffer(GL_ARRAY_BUFFER, previouslyBoundBuffer);
 
     auto ret  = new Buffer();
-    ret->id   = buffer;
+    ret->id = buffer;
     ret->size = size;
+    ret->shouldMap = Mod::get()->getSettingValue<bool>("use_mapped_buffers");
 
     return ret;
 }

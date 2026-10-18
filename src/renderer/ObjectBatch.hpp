@@ -10,6 +10,7 @@
 #include "glm/fwd.hpp"
 #include "math/ConvexList.hpp"
 #include "ObjectUtils.hpp"
+#include "ObjectSpriteSorter.hpp"
 
 using namespace geode;
 
@@ -28,8 +29,7 @@ using namespace geode;
 #define OBJECT_VERTEX_ATTRIBUTES(ATTRIB) \
     ATTRIB(0, vec2, positionOffset) \
     ATTRIB(1, vec2, texCoord) \
-    ATTRIB(2, u32,  srbIndex) \
-    ATTRIB(3, u16,  colorChannel) \
+    ATTRIB(2, u32,  spriteIndex)
 
 ////////////////////////////////////////////////
 
@@ -115,14 +115,12 @@ public:
 
     void finishWriting();
 
+    void draw(const LayerKey& layer);
+
     inline void bind() {
         glBindVertexArray(vao);
         indexBuffer->bindAs(GL_ELEMENT_ARRAY_BUFFER);
     }
-
-    // inline u32 indexCount() {
-    //     return quadCount * 6;
-    // }
 
     inline usize getVertexBufferSize() {
         return vertexCount * sizeof(ObjectVertex);
@@ -132,15 +130,17 @@ public:
         spriteSheetFilter = sheet;
     }
 
-    inline std::vector<LayerKey> getUsedLayerIds() {
-        return visibilityManager.getUsedLayerIds();
+    inline const std::set<LayerKey>& getUsedLayerIds() {
+        return usedLayerKeys;//visibilityManager.getUsedLayerIds();
     }
 
-    void predraw(const CameraView& view);
+    void predraw();
 
     LayerDrawCall* getDrawCall(const LayerKey& id);
 
     void draw(LayerDrawCall* drawCall);
+
+    void prepareCullingComputeShader();
 
 private:
     void prepareVAO();
@@ -149,29 +149,42 @@ private:
     Renderer& renderer;
 
     // Manages which objects are visible
-    VisibilityManager visibilityManager;
+    // VisibilityManager visibilityManager;
 
     SpriteSheet spriteSheetFilter = (SpriteSheet)-1;
 
+    // Static buffers
     Buffer* vertexBuffer = nullptr;
-    Buffer* indexBuffer  = nullptr;
+    Buffer* indexBuffer = nullptr;
+    Buffer* inputSpriteBuffer = nullptr;
+
+    // GPU buffers
+    Buffer* rawSpriteBuffer = nullptr;
+    Buffer* culledIndexBuffer = nullptr;
 
     u32 vao = 0;
+
+    ObjectSpriteSorter spriteSorter;
+    UPtr<SortedObjectBatch> sortedBatch;
 
     std::vector<ObjectVertex> verticies;
     u32 vertexCount = 0;
 
     std::vector<u32> indicies;
     u32 indexCount = 0;
+
+    std::vector<InputSprite> inputSprites;
     
     std::vector<u32> culledIndicies;
     u32 culledIndexCount = 0;
 
     std::vector<LayerDrawCall> layerDrawCalls;
 
+    std::set<LayerKey> usedLayerKeys;
+
     SpriteVertexTransforms currentSpriteVertexTransforms;
     glm::vec2 currentSpriteObjectStartPosition;
     u32 currentSpriteVertexIndex;
     u32 currentSpriteSRBIndex;
-    u16 currentSpriteColorChannel;
+    u32 currentSpriteIndex;
 };

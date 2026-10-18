@@ -6,6 +6,7 @@
 using namespace geode::prelude;
 
 static bool newPlayLayer = false;
+// static CCArray* allGameObjects = nullptr;
 
 #include <Geode/modify/PlayLayer.hpp>
 class $modify(RendererPlayLayer, PlayLayer) {
@@ -13,6 +14,14 @@ class $modify(RendererPlayLayer, PlayLayer) {
         newPlayLayer = true;
         PlayLayer::setupHasCompleted();
         newPlayLayer = false;
+    }
+
+    bool init(GJGameLevel *level, bool useReplay, bool dontCreateObjects) {
+        // if (!allGameObjects) {
+        //     allGameObjects = CCArray::create();
+        //     allGameObjects->retain();
+        // }
+        return PlayLayer::init(level, useReplay, dontCreateObjects);
     }
 
     // This gets called from inside PlayLayer::setupHasCompleted()
@@ -24,9 +33,13 @@ class $modify(RendererPlayLayer, PlayLayer) {
                 return;
             }
 
-            auto renderer = Renderer::create(this);
+            auto renderer = Renderer::create(this, m_objects);
             if (renderer)
                 batchLayer->addChild(renderer, -100000);
+
+            // for (auto obj : CCArrayExt<GameObject, false>(allGameObjects))
+            //     obj->release();
+            // allGameObjects->removeAllObjects();
         }
 
         PlayLayer::resetLevel();
@@ -37,14 +50,42 @@ class $modify(RendererPlayLayer, PlayLayer) {
     }
 
     void updateVisibility(float dt) {
+        auto timer = BProfiler::start("PlayLayer::updateVisibility");
         auto renderer = Renderer::get();
         if (renderer && renderer->useOptimizations()) {
             ((decomp_PlayLayer*)this)->optimized_updateVisibility(dt);
+            timer.end();
             return;
         }
 
         PlayLayer::updateVisibility(dt);
+        // ((decomp_PlayLayer*)this)->virtual_updateVisibility(dt);
+        timer.end();
     }
+};
+
+#include <Geode/modify/GameObject.hpp>
+class $modify(MyGameObject, GameObject) {
+    /*
+    static GameObject* objectFromVector(
+        gd::vector<gd::string>& propValues,
+        gd::vector<void*>& propIsPresent,
+        GJBaseGameLayer* gameLayer,
+        bool lowDetail
+    ) {
+        GameObject* ret = GameObject::objectFromVector(propValues, propIsPresent, gameLayer, lowDetail);
+        if (!GameManager::get()->m_playLayer)
+            return ret;
+
+        allGameObjects->addObject(ret);
+        ret->retain();
+
+        if (ret->m_objectType == GameObjectType::Decoration)
+            return ret;
+        
+        return ret;
+    }
+    */
 };
 
 static void removeDecoObjects(CCArray* array) {

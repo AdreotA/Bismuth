@@ -35,10 +35,20 @@ static std::string byteSizeToString(usize size) {
     return fmt::format("{:.3f}{}", dsize, unit);
 }
 
-bool Renderer::init(PlayLayer* layer) {
+class FinishNode : public CCNode {
+public:
+    void draw() {
+        if (currentRenderer)
+            currentRenderer->finish();        
+    }
+};
+
+bool Renderer::init(PlayLayer* layer, CCArray* levelObjects) {
     if (currentRenderer)
         return false;
     currentRenderer = this;
+
+    glGenQueries(1, &timeElapsedQuery);
 
     this->layer = layer;
     
@@ -63,14 +73,15 @@ bool Renderer::init(PlayLayer* layer) {
 
     SpriteMeshDictionary::loadFromFile("spriteMeshes.json");
 
-    groupManager.initWithObjects(layer->m_objects);
+    groupManager.initWithObjects(levelObjects);
 
-    ObjectSorter sorter;
+    // ObjectSorter sorter;
 
-    sorter.initForGameLayer(layer);
-    log::info("Level contains {} object(s)", layer->m_objects->count());
+    std::vector<GameObject*> objects;
+
+    log::info("Level contains {} object(s)", levelObjects->count());
     log::info("Sorting objects...");
-    for (auto object : CCArrayExt<GameObject*>(layer->m_objects)) {
+    for (auto object : CCArrayExt<GameObject*>(levelObjects)) {
         if (object == layer->m_anticheatSpike) {
             DEBUG_LOG("- anti-cheat spike");
             continue;
@@ -87,6 +98,9 @@ bool Renderer::init(PlayLayer* layer) {
         DEBUG_LOG("  - customGlowColor: {}", object->m_customGlowColor);
         DEBUG_LOG("  - opacityMod: {}", object->m_opacityMod);
         DEBUG_LOG("  - isDecoration2: {}", object->m_isDecoration2);
+        DEBUG_LOG("  - colorSprite: {}", object->m_colorSprite);
+        DEBUG_LOG("  - activeMainColorID: {}", object->m_activeMainColorID);
+        DEBUG_LOG("  - activeDetailColorID: {}", object->m_activeDetailColorID);
         if (object->m_baseColor && object->m_baseColor->m_usesHSV)
             DEBUG_LOG("  - baseHSV: {} {} {} {} {}", object->m_baseColor->m_hsv.h, object->m_baseColor->m_hsv.s, object->m_baseColor->m_hsv.v, object->m_baseColor->m_hsv.absoluteSaturation, object->m_baseColor->m_hsv.absoluteBrightness);
         if (object->m_detailColor && object->m_detailColor->m_usesHSV)
@@ -94,25 +108,27 @@ bool Renderer::init(PlayLayer* layer) {
         if (object->getHasRotateAction())
             DEBUG_LOG("  - rotationDelta: {}", ((EnhancedGameObject*)object)->m_rotationDelta);
 
-        sorter.addGameObject(object);
+        objects.push_back(object);
     }
-    sorter.finalizeSorting();
 
     log::info("Generating static rendering buffer....");
 
-    renderedGameObjectCount = 0;
-    for (auto it = sorter.iterator(); !it.isEnd(); it.next())
-        renderedGameObjectCount++;
+    renderedGameObjectCount = objects.size();
     
-    generateStaticRenderingBuffer(sorter);
+    generateStaticRenderingBuffer(objects);
 
     u32 groupCombCount = groupManager.getGroupCombinationCount();
     log::info("{} group combinations detected", groupCombCount);
 
     log::info("Generating vertex buffer...");
 
-    for (auto it = sorter.iterator(); !it.isEnd(); it.next())
-        objectBatch.writeGameObject(it.get());
+    for (auto& value : colorChannelsIsBlending)
+        value = false;
+
+    fetchBlendingStates();
+
+    for (auto object : objects)
+        objectBatch.writeGameObject(object);
     objectBatch.finishWriting();
     generateBatchNodes();
 
@@ -123,17 +139,19 @@ bool Renderer::init(PlayLayer* layer) {
     shaderMacroVariables["TOTAL_OBJECT_COUNT"] = std::to_string(renderedGameObjectCount == 0 ? 1 : renderedGameObjectCount);
     shaderMacroVariables["GROUP_ID_LIMIT"]     = std::to_string(groupCombCount);
 
-    shader = Shader::create("object.vert", "object.frag", shaderMacroVariables);
+    shader = Shader::create("objectDrawing.vert", "objectDrawing.frag", shaderMacroVariables);
     if (!shader)
         return false;
+
+    cullingComputeShader = Shader::createCompute("objectCulling.comp", shaderMacroVariables);
 
     colorChannelBufferObject = Buffer::createDynamicDraw("Color channel buffer", sizeof(ColorChannelBuffer));
     if (!colorChannelBufferObject)
         return false;
     colorChannelBuffer = (ColorChannelBuffer*)colorChannelBufferObject->mapWriteOnly();
 
-    uniformBuffer = Buffer::createDynamicDraw("Uniform buffer", sizeof(RendererUniformBuffer));
-    if (!uniformBuffer)
+    gameStateBuffer = Buffer::createDynamicDraw("Game state buffer", sizeof(GameStateBuffer));
+    if (!gameStateBuffer)
         return false;
 
     debugText = CCLabelBMFont::create("", "chatFont.fnt");
@@ -165,6 +183,8 @@ bool Renderer::init(PlayLayer* layer) {
 
     rendererStartTime = getTime();
 
+    layer->m_objectLayer->addChild(new FinishNode, 99999);
+
     reset();
 
     log::info("Renderer initialized");
@@ -184,6 +204,8 @@ void Renderer::generateBatchNodes() {
 }
 
 void Renderer::terminate() {
+    glDeleteQueries(1, &timeElapsedQuery);
+
     if (shader)
         Shader::destroy(shader);
     shader = nullptr;
@@ -200,8 +222,8 @@ void Renderer::terminate() {
     if (srbBuffer)
         Buffer::destroy(srbBuffer);
 
-    if (uniformBuffer)
-        Buffer::destroy(uniformBuffer);
+    if (gameStateBuffer)
+        Buffer::destroy(gameStateBuffer);
 
     currentRenderer = nullptr;
     log::info("Renderer terminated");
@@ -219,35 +241,50 @@ void Renderer::prepareShaderUniforms() {
 
     // shader->setTextureArray("u_spriteSheets", (i32)SpriteSheet::COUNT, spriteSheets);
 
-    (kmMat4&)uniforms.u_mvp = matrixMVP;
-    uniforms.u_timer = gameTimer;
-    uniforms.u_cameraPosition = ccPointToGLM(layer->m_gameState.m_cameraPosition2);
-    uniforms.u_cameraViewSize = glm::vec2(layer->m_cameraWidth, layer->m_cameraHeight);
+    (kmMat4&)gameState.u_mvp = matrixMVP;
+    gameState.u_timer = gameTimer;
+    gameState.u_cameraViewSize = glm::vec2(layer->m_cameraWidth, layer->m_cameraHeight);
     auto winsize = CCDirector::get()->getWinSize();
-    uniforms.u_winSize = glm::vec2(winsize.width, winsize.height);
-    uniforms.u_screenRight = CCDirector::get()->getScreenRight();
-    uniforms.u_cameraUnzoomedX = layer->m_cameraUnzoomedX;
+    gameState.u_winSize = glm::vec2(winsize.width, winsize.height);
+    gameState.u_screenRight = CCDirector::get()->getScreenRight();
+    gameState.u_cameraUnzoomedX = layer->m_cameraUnzoomedX;
     ccColor3B specialLightBG = GameToolbox::transformColor(layer->m_effectManager->activeColorForIndex(COLOR_CHANNEL_BG), 0.0, -0.2, 0.2);
-    uniforms.u_specialLightBGColor = ccColor3BToGLM(specialLightBG);
+    gameState.u_specialLightBGColor = ccColor3BToGLM(specialLightBG);
 
-    uniforms.u_gameStateFlags = 0;
+    auto winSize = CCDirector::get()->getWinSize();
+
+    vec2 cameraBottomLeft  = ccPointToGLM(layer->m_objectLayer->convertToNodeSpace({0, 0}));
+    vec2 cameraBottomRight = ccPointToGLM(layer->m_objectLayer->convertToNodeSpace({winSize.width, 0}));
+    vec2 cameraTopLeft     = ccPointToGLM(layer->m_objectLayer->convertToNodeSpace({0, winSize.height}));
+
+    vec2 cameraRight = cameraBottomRight - cameraBottomLeft;
+    vec2 cameraUp    = cameraTopLeft     - cameraBottomLeft;
+
+    gameState.u_cameraPosition = cameraBottomLeft;
+
+    gameState.u_cameraRight = glm::normalize(cameraRight);
+    gameState.u_cameraUp    = glm::normalize(cameraUp);
+
+    gameState.u_cameraSize = { glm::length(cameraRight), glm::length(cameraUp) };
+
+    gameState.u_gameStateFlags = 0;
     if (layer->m_player1->m_isDead)
-        uniforms.u_gameStateFlags |= GAME_STATE_IS_PLAYER_DEAD;
+        gameState.u_gameStateFlags |= GAME_STATE_IS_PLAYER_DEAD;
 
     if (layer->m_skipAudioStep)
-        uniforms.u_audioScale = FMODAudioEngine::sharedEngine()->getMeteringValue();
+        gameState.u_audioScale = FMODAudioEngine::sharedEngine()->getMeteringValue();
     else
-        uniforms.u_audioScale = layer->m_audioEffectsLayer->m_audioScale;
+        gameState.u_audioScale = layer->m_audioEffectsLayer->m_audioScale;
     
     if (layer->m_isSilent || (layer->m_isPracticeMode && !layer->m_practiceMusicSync))
-        uniforms.u_audioScale = 0.5;
+        gameState.u_audioScale = 0.5;
 
-    uniformBuffer->write(&uniforms, sizeof(RendererUniformBuffer));
-    uniformBuffer->bindAsUniformBuffer(RENDERER_UNIFORM_BUFFER_BINDING);
+    gameStateBuffer->write(&gameState, sizeof(gameState));
 }
 
 void Renderer::prepareColorChannelBuffer() {
     auto timer = BProfiler::start("Generate color channel buffer");
+    profiler::functionPush("Renderer::prepareColorChannelBuffer");
 
     auto effectManager = layer->m_effectManager;
 
@@ -266,7 +303,9 @@ void Renderer::prepareColorChannelBuffer() {
     }
 
     colorChannelBuffer->u_channelColors[COLOR_CHANNEL_BLACK] = { 0, 0, 0, 255 };
-
+    colorChannelBufferObject->flush(0, colorChannelBufferObject->getSize());
+    
+    profiler::functionPop();
     timer.end();
 }
 
@@ -284,14 +323,13 @@ static u32 convertToShaderHSV(const ccHSVValue& hsv) {
     return ret;
 }
 
-void Renderer::generateStaticRenderingBuffer(ObjectSorter& sorter) {
-    std::vector<StaticObjectInfo> objectInfos;
+void Renderer::generateStaticRenderingBuffer(std::vector<GameObject*>& objects) {
+    std::vector<ObjectInfo> objectInfos;
     objectInfos.resize(renderedGameObjectCount);
 
     usize index = 0;
 
-    for (auto it = sorter.iterator(); !it.isEnd(); it.next()) {
-        auto object = it.get();
+    for (auto object : objects) {
         auto objectInfo = &objectInfos[index];
 
         objectInfo->startPosition = ccPointToGLM(object->m_startPosition);
@@ -313,6 +351,9 @@ void Renderer::generateStaticRenderingBuffer(ObjectSorter& sorter) {
             if (typeinfo_cast<RingObject*>(object))
                 objectInfo->flags |= OBJECT_FLAG_IS_ORB;
         }
+
+        objectInfo->baseColorChannelId = object->m_activeMainColorID;
+        objectInfo->detailColorChannelId = object->m_activeDetailColorID;
 
         if (object->m_baseColor && object->m_baseColor->m_usesHSV) {
             objectInfo->flags |= OBJECT_FLAG_HAS_BASE_HSV;
@@ -338,7 +379,7 @@ void Renderer::generateStaticRenderingBuffer(ObjectSorter& sorter) {
         index++;
     }
 
-    srbBuffer = Buffer::createStaticDraw("Static rendering buffer", objectInfos.data(), objectInfos.size() * sizeof(StaticObjectInfo));
+    srbBuffer = Buffer::createStaticDraw("Static rendering buffer", objectInfos.data(), objectInfos.size() * sizeof(ObjectInfo));
 };
 
 static glm::vec2 linePoint = { 100, 200 };
@@ -368,6 +409,12 @@ void Renderer::draw() {
     profiler::functionPush("Renderer::draw");
 
     auto timer = BProfiler::start("Renderer::draw");
+    
+    if (debugTextEnabled) {
+        glBeginQuery(GL_TIME_ELAPSED, timeElapsedQuery);
+    }
+
+    fetchBlendingStates();
 
     u64 prevTime = getTime();
     storeGLStates();
@@ -379,17 +426,6 @@ void Renderer::draw() {
         groupManager.prepareGroupStateBuffer();
         timer.end();
 
-        CameraView view = {
-            ccPointToGLM(layer->m_gameState.m_cameraPosition2),
-            glm::vec2(layer->m_cameraWidth, 0),
-            glm::vec2(0, layer->m_cameraHeight)
-        };
-
-        view.bottomLeft  += (view.rightVector + view.upVector) * 0.5f;
-        view.rightVector *= CAMERA_CULL_RECT_SCALE;
-        view.upVector    *= CAMERA_CULL_RECT_SCALE;
-        view.bottomLeft  -= (view.rightVector + view.upVector) * 0.5f;
-
         // glm::vec2 bl = view.bottomLeft;
         // glm::vec2 br = view.bottomLeft + view.rightVector;
         // glm::vec2 tl = view.bottomLeft + view.upVector;
@@ -400,7 +436,7 @@ void Renderer::draw() {
         // drawLine(tr, tl, glm::vec4(1, 1, 0, 1));
         // drawLine(tl, bl, glm::vec4(1, 1, 0, 1));
 
-        objectBatch.predraw(view);
+        objectBatch.predraw();
     }
 
     timer.end();
@@ -446,31 +482,18 @@ void Renderer::draw() {
 
     restoreGLStates();
 
-    /*
-    
-    if (debugTextEnabled) {
-        // glBeginQuery(GL_TIME_ELAPSED, 50);
-    }
+    profiler::functionPop();
+}
 
-    prepareDraw();
-
-    spritesOnScreen = objectBatch.draw();
-
-    finishDraw();
-
-    restoreGLStates();
-    
+void Renderer::finish() {
     if (debugTextEnabled) {
         renderTime = 0;
-        // glEndQuery(GL_TIME_ELAPSED);
-        // glGetQueryObjecti64v(50, GL_QUERY_RESULT, &renderTime);
+        glEndQuery(GL_TIME_ELAPSED);
+        glGetQueryObjecti64v(timeElapsedQuery, GL_QUERY_RESULT, &renderTime);
     }
-    */
 
     if (debugText->isVisible())
         updateDebugText();
-
-    profiler::functionPop();
 }
 
 void Renderer::updateDebugText() {
@@ -489,7 +512,7 @@ void Renderer::updateDebugText() {
             text += fmt::format("OpenGL {}\n", (const char*)glGetString(GL_VERSION));
             text += fmt::format("{}\n", (const char*)glGetString(GL_RENDERER));
             text += fmt::format("Window: {}x{}\n", screenSize.width, screenSize.height);
-            text += fmt::format("Render time: {}ms\n", (double)renderTime / 1000000.0);
+            text += fmt::format("GPU time: {}ms\n", (double)renderTime / 1000000.0);
             text += fmt::format("Vertex buffer size: {}\n", byteSizeToString(objectBatch.getVertexBufferSize()));
             text += fmt::format("Sprites on screen: {}\n", spritesOnScreen);
             text += fmt::format("Static rendering buffer size: {}\n", byteSizeToString(srbBuffer->getSize()));
@@ -508,13 +531,32 @@ void Renderer::updateDebugText() {
     debugTextOutline2->setString(text.c_str());
 }
 
+void Renderer::bindCullingComputeShaderBuffers() {
+    gameStateBuffer->bindAsUniformBuffer(GAME_STATE_BUFFER_BINDING);
+    srbBuffer->bindAsStorageBuffer(OBJECT_INFO_BUFFER_BINDING);
+    colorChannelBufferObject->bindAsStorageBuffer(COLOR_CHANNEL_BUFFER_BINDING);
+    groupManager.bindGroupStateBuffer();
+}
+
+void Renderer::fetchBlendingStates() {
+    for (int i = 0; i < colorChannelsIsBlending.size(); i++) {
+        auto vec = layer->m_effectManager->m_colorActionVector[i];
+        if (vec)
+            colorChannelsIsBlending[i] = vec->m_blending;
+    }
+
+    colorChannelsIsBlending[COLOR_CHANNEL_P1]  = true;
+    colorChannelsIsBlending[COLOR_CHANNEL_P2]  = true;
+    colorChannelsIsBlending[COLOR_CHANNEL_LBG] = true;
+}
+
 Shader* Renderer::prepareDraw() {
     storeGLStates();
 
     shader->use();
 
-    uniformBuffer->bindAsUniformBuffer(RENDERER_UNIFORM_BUFFER_BINDING);
-    srbBuffer->bindAsStorageBuffer(STATIC_RENDERING_BUFFER_BINDING);
+    gameStateBuffer->bindAsUniformBuffer(GAME_STATE_BUFFER_BINDING);
+    srbBuffer->bindAsStorageBuffer(OBJECT_INFO_BUFFER_BINDING);
     colorChannelBufferObject->bindAsStorageBuffer(COLOR_CHANNEL_BUFFER_BINDING);
     groupManager.bindGroupStateBuffer();
 
@@ -544,18 +586,6 @@ void Renderer::update(float dt) {
     cameraCenterPos = ccPointToGLM(gstate.m_cameraPosition2 + CCPoint(layer->m_cameraWidth * 0.5, layer->m_cameraHeight * 0.5));
 }
 
-bool Renderer::isColorChannelBlending(i32 channel) {
-    if (
-        channel == COLOR_CHANNEL_P1 ||
-        channel == COLOR_CHANNEL_P2 ||
-        channel == COLOR_CHANNEL_LBG
-    ) {
-        return true;
-    }
-
-    return layer->shouldBlend(channel);
-}
-
 CCSpriteBatchNode* Renderer::getSpriteBatchNodeWithLayerId(LayerKey id) {
     CCNode* node = layer->parentForZLayer((i32)id.zlayer, id.blending, (i32)id.spriteSheet, false);
     
@@ -565,10 +595,10 @@ CCSpriteBatchNode* Renderer::getSpriteBatchNodeWithLayerId(LayerKey id) {
     return (CCSpriteBatchNode*)node;
 }
 
-Ref<Renderer> Renderer::create(PlayLayer* layer) {
+Ref<Renderer> Renderer::create(PlayLayer* layer, CCArray* objects) {
     auto ren = new Renderer;
 
-    if (ren->init(layer)) {
+    if (ren->init(layer, objects)) {
         ren->autorelease();
         return ren;
     }

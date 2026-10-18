@@ -51,7 +51,7 @@ private:
     struct VisibleSpriteList {
         ObjectSprite* head = nullptr;
 
-        inline void push(ObjectSprite* sprite) {
+        GEODE_INLINE void push(ObjectSprite* sprite) {
             if (head == nullptr) {
                 sprite->next = sprite;
                 sprite->prev = sprite;
@@ -83,7 +83,7 @@ private:
 
         std::map<i32, VisibleSpriteList> visibleSpritesPerZOrder;
 
-        inline void push(ObjectSprite* sprite, i32 zorder) {
+        GEODE_INLINE void push(ObjectSprite* sprite, i32 zorder) {
             auto it = visibleSpritesPerZOrder.find(zorder);
             if (it == visibleSpritesPerZOrder.end()) {
                 visibleSpritesPerZOrder[zorder] = {};

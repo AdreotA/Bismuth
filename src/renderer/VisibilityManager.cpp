@@ -5,6 +5,7 @@
 #include "Renderer.hpp"
 #include "common.hpp"
 #include "glm/common.hpp"
+#include "../profiler.hpp"
 #include <Geode/binding/GameObject.hpp>
 
 using namespace geode::prelude;
@@ -68,12 +69,13 @@ inline static float maxOf4(float a, float b, float c, float d) {
     return a;
 }
 
-// volatile float minX;
-// volatile float minY;
-// volatile float maxX;
-// volatile float maxY;
+volatile float minX;
+volatile float minY;
+volatile float maxX;
+volatile float maxY;
 
 void VisibilityManager::calculateVisibilitiesForCameraView(const CameraView& view) {
+    profiler::functionPush("VisibilityManager::calculateVisibilitiesForCameraView");
     clearObjectVisibilities();
 
     GroupManager& groupManager = Renderer::get()->getGroupManager();
@@ -144,7 +146,13 @@ void VisibilityManager::calculateVisibilitiesForCameraView(const CameraView& vie
 
         Rect rect = { min, max };
 
+//        minX = rect.bottomLeft.x;
+//        minY = rect.bottomLeft.y;
+//        maxX = rect.topRight.x;
+//        maxY = rect.topRight.y;
+
         sectionSet.forEachSectionInRect(rect, [&](const auto& section) {
+            // (void)section;
             for (Object* object : section) {
                 markObjectAsVisible(object);
             }
@@ -152,6 +160,7 @@ void VisibilityManager::calculateVisibilitiesForCameraView(const CameraView& vie
 
         transformId++;
     }
+    profiler::functionPop();
 }
 
 void VisibilityManager::markAllObjectsVisible() {

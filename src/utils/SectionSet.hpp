@@ -79,7 +79,7 @@ public:
             generateFastColumn(fastMap[y], section);
     }
 
-    inline void forEachSectionInRect(const Rect& rect, std::function<void(const std::span<_Object>&)> callback) {
+    GEODE_INLINE void forEachSectionInRect(const Rect& rect, std::function<void(const std::span<_Object>&)> callback) {
         IRect srect = {
             glm::ivec2(rect.bottomLeft / _SectionSize),
             glm::ivec2(rect.topRight   / _SectionSize) + glm::ivec2(1, 1)
