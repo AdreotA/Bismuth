@@ -171,7 +171,7 @@ GroupCombinationIndex GroupManager::getTransformCombinationIndexForObject(GameOb
 }
 
 void GroupManager::prepareGroupStateBuffer() {
-    profiler::functionPush("GroupManager::prepareGroupStateBuffer");
+    PROFILER_PUSH("GroupManager::prepareGroupStateBuffer");
     for (u32 id = 1; id <= maxGroupId; id++) {
         if (!disabledGroups.contains(id))
             alphaValuesPerGroupId[id] = renderer.getPlayLayer()->m_effectManager->opacityModForGroup(id);
@@ -194,7 +194,7 @@ void GroupManager::prepareGroupStateBuffer() {
         groupStates[combIndex].opacity = alphaValuesPerAlphaIndex[alphaIndiciesPerGroupCombinationIndex[combIndex]];
 
     groupStateBuffer->flush(0, groupStateBuffer->getSize());
-    profiler::functionPop();
+    PROFILER_POP();
 }
 
 void GroupManager::moveGroup(GroupID groupId, float deltaX, float deltaY) {

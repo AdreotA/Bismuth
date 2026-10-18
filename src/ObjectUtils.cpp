@@ -63,12 +63,7 @@ u8 LayerKey::asNumber() const {
     case SpriteSheet::_UNK:
     case SpriteSheet::GAME_1:   spriteSheetKey = 7; break;
     }
-
-    // zlayerKey = (u8)zlayer;
-    // spriteSheetKey = (u8)spriteSheet;
-
-    // log::info("KEYS {} => {}", spriteSheetKey, (zlayerKey << 4) | (spriteSheetKey << 1) | blending);
-
+    
     return (zlayerKey << 4) | (spriteSheetKey << 1) | (blending ? 1 : 0);
 }
 

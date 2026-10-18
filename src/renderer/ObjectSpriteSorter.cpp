@@ -22,7 +22,7 @@ void ObjectSpriteSorter::addSprite(
     u32 vertexCount
 ) {
     spriteEntries.push_back({
-        .zOrder = object->m_objectID,
+        .zOrder = object->getObjectZOrder(),
         .zLayer = object->getObjectZLayer(),
         .spriteSheet = ObjectUtils::getSpritesheetOfObject(object, type),
         .colorChannelId = (u16)ObjectUtils::getSpriteColorChannel(type, object, sprite),
@@ -38,14 +38,10 @@ void ObjectSpriteSorter::sortForCurrentBlendingStates() {
 
     for (auto& sprite : spriteEntries) {
         auto key = sprite.getFullLayerKey();
-        // log::info("KEY {}", key.toString());
-
         sortedSpriteLayers[key].push_back(&sprite);
     }
 
-    // log::info("Sorted layers:");
     for (auto& [key, layer] : sortedSpriteLayers) {
-        // log::info("  - {}: {}", key.toString(), layer.size());
         std::sort(layer.begin(), layer.end(), [](const SpriteEntry* a, const SpriteEntry* b) {
             return a->zOrder < b->zOrder;
         });
@@ -78,6 +74,9 @@ UPtr<SortedObjectBatch> ObjectSpriteSorter::generateSortedBatch() {
 
         // log::info("Layer processed {}: (index={}, size={})", key.toString(), workGroupStartIndex, workGroupEndIndex - workGroupStartIndex);
     }
+
+    log::info("Approx sprites per work group: {}", approxSpritesPerWorkGroup);
+    log::info("Work group count: {}", workGroups.size());
 
     Buffer* spriteRemapBuffer = Buffer::createStaticDraw(
         "Sprite remap buffer",

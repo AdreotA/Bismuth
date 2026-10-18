@@ -143,8 +143,6 @@ void ObjectBatch::addSprite(
     SpriteType type,
     const cocos2d::CCAffineTransform& transform
 ) {
-    log::info("type {}", (int)type);
-
     if (object->m_hasNoGlow && type == SpriteType::GLOW)
         return;
 
@@ -214,16 +212,6 @@ void ObjectBatch::finishWriting() {
 
     storeGLStates();
 
-    /*
-    auto layers = visibilityManager.getUsedLayerIds();
-    for (auto& layerId : layers)
-        layerDrawCalls.push_back({ layerId, visibilityManager.getLayer(layerId), 0, 0 });
-
-    visibilityManager.generateFastStructures();
-    */
-
-    // log::info("ORDER SET COUNT {}", drawMap.orderSetsCount());
-
     vertexCount = verticies.size();
     indexCount  = indicies.size();
 
@@ -251,34 +239,16 @@ typedef void (*PFNGLDISPATCHCOMPUTEPROC)(GLuint num_groups_x, GLuint num_groups_
 static PFNGLDISPATCHCOMPUTEPROC glDispatchCompute = nullptr;
 
 void ObjectBatch::draw(const LayerKey& layer) {
-    /*
-    log::info("yjdtyjdtyjdtyjdtyj {} {} {}", (int)layer.zlayer, (int)layer.spriteSheet, layer.blending);
-    for (auto& [a, b] : sortedBatch->workGroupRangePerLayerKey)
-        log::info("- {} {} {}", (int)a.zlayer, (int)a.spriteSheet, a.blending);
-    */
+    PROFILER_PUSH("ObjectBatch::draw");
 
-    // log::info("PREDRAW {}", layer.toString());
-
-    if (!sortedBatch->workGroupRangePerLayerKey.contains(layer))
+    if (!sortedBatch->workGroupRangePerLayerKey.contains(layer)) {
+        PROFILER_POP();
         return;
-
-    // log::info("sytjsdtukf---");
-
+    }
     const auto& range = sortedBatch->workGroupRangePerLayerKey[layer];
 
     if (!glMultiDrawElementsIndirect)
         glMultiDrawElementsIndirect = (PFNGLMULTIDRAWELEMENTSINDIRECTPROC)wglGetProcAddress("glMultiDrawElementsIndirect");
-
-    std::vector<u32> kog;
-    kog.resize(sortedBatch->drawCommandBuffer->getSize() / 4, 0);
-
-    sortedBatch->drawCommandBuffer->read(kog.data(), kog.size() * 4, 0);
-
-    /*
-    for (auto s : kog)
-        log::info("dc {}", s);
-    log::info("--");
-    */
 
     sortedBatch->bindBuffers();
     prepareCullingComputeShader();
@@ -294,10 +264,12 @@ void ObjectBatch::draw(const LayerKey& layer) {
         range.count,
         sizeof(int) * 5
     );
+
+    PROFILER_POP();
 }
 
 void ObjectBatch::predraw() {
-    profiler::functionPush("ObjectBatch::predraw");
+    PROFILER_PUSH("ObjectBatch::predraw");
     
     Shader* computeShader = renderer.getCullingComputeShader();
 
@@ -312,35 +284,7 @@ void ObjectBatch::predraw() {
 
     glDispatchCompute(sortedBatch->workGroupCount, 1, 1);
 
-    /*
-    usize index = 0;
-    
-    for (auto& drawCall : layerDrawCalls) {
-        drawCall.startIndex = index;
-        
-        visibilityManager.forEachVisibleSpriteIndexRangeInLayer(drawCall.layer, [&](usize begin, usize end) {
-            // Maybe use std::copy?
-            memcpy(culledIndicies.data() + index, indicies.data() + begin, (end - begin) * sizeof(u32));
-            index += end - begin;
-        });
-
-        drawCall.indexCount = index - drawCall.startIndex;
-    }
-    */
-
-    // log::info("INDICIES COUNT {}", index);
-    // for (i32 i = 0; i < index; i++)
-    //     log::info("INDEX {}", culledIndicies[i]);
-
-    /*
-    culledIndexCount = index;
-    if (culledIndicies.size())
-        indexBuffer->write(culledIndicies.data(), culledIndexCount * sizeof(u32));
-    */
-
-
-
-    profiler::functionPop();
+    PROFILER_POP();
 }
 
 ObjectBatch::LayerDrawCall* ObjectBatch::getDrawCall(const LayerKey& id) {

@@ -120,11 +120,6 @@ DECLARE_HOTKEY(enumKeyCodes::KEY_M, {
         ObjectUtils::unpackObjectIntoSprites(object, [&](const UnpackedSprite& sprite) {
             const CCAffineTransform& tr = sprite.transform;
 
-            if (i == 1762) {
-                log::info("{}, {}, {}", tr.a, tr.b, tr.tx);
-                log::info("{}, {}, {}", tr.c, tr.d, tr.ty);
-            }
-
             glm::vec2 unitX = { tr.a, tr.b };
             glm::vec2 unitY = { tr.c, tr.d };
             

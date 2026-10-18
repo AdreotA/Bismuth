@@ -91,7 +91,8 @@ bool Renderer::init(PlayLayer* layer, CCArray* levelObjects) {
             continue;
 
         DEBUG_LOG("- {}, id: {}", (void*)object, object->m_objectID);
-        DEBUG_LOG("  - zlayer: {}", (i32)object->getObjectZLayer());
+        DEBUG_LOG("  - zlayer: {}", zLayerAsString(object->getObjectZLayer()));
+        DEBUG_LOG("  - zorder: {}", object->getObjectZOrder());
         DEBUG_LOG("  - blending: {}", object->m_baseOrDetailBlending);
         DEBUG_LOG("  - spritesheet: {}", object->getParentMode());
         DEBUG_LOG("  - glowColorIsLBG: {}", object->m_glowColorIsLBG);
@@ -284,7 +285,7 @@ void Renderer::prepareShaderUniforms() {
 
 void Renderer::prepareColorChannelBuffer() {
     auto timer = BProfiler::start("Generate color channel buffer");
-    profiler::functionPush("Renderer::prepareColorChannelBuffer");
+    PROFILER_PUSH("Renderer::prepareColorChannelBuffer");
 
     auto effectManager = layer->m_effectManager;
 
@@ -305,7 +306,7 @@ void Renderer::prepareColorChannelBuffer() {
     colorChannelBuffer->u_channelColors[COLOR_CHANNEL_BLACK] = { 0, 0, 0, 255 };
     colorChannelBufferObject->flush(0, colorChannelBufferObject->getSize());
     
-    profiler::functionPop();
+    PROFILER_POP();
     timer.end();
 }
 
@@ -406,7 +407,7 @@ static void drawCross(Renderer* ren, const glm::vec2& point, const glm::vec4& co
 float CAMERA_CULL_RECT_SCALE = 1.3;
 
 void Renderer::draw() {
-    profiler::functionPush("Renderer::draw");
+    PROFILER_PUSH("Renderer::draw");
 
     auto timer = BProfiler::start("Renderer::draw");
     
@@ -482,7 +483,7 @@ void Renderer::draw() {
 
     restoreGLStates();
 
-    profiler::functionPop();
+    PROFILER_POP();
 }
 
 void Renderer::finish() {
@@ -551,15 +552,10 @@ void Renderer::fetchBlendingStates() {
 }
 
 Shader* Renderer::prepareDraw() {
+    PROFILER_PUSH("Renderer::prepareDraw");
     storeGLStates();
-
     shader->use();
-
-    gameStateBuffer->bindAsUniformBuffer(GAME_STATE_BUFFER_BINDING);
-    srbBuffer->bindAsStorageBuffer(OBJECT_INFO_BUFFER_BINDING);
-    colorChannelBufferObject->bindAsStorageBuffer(COLOR_CHANNEL_BUFFER_BINDING);
-    groupManager.bindGroupStateBuffer();
-
+    PROFILER_POP();
     return shader;
 }
 

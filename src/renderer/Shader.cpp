@@ -131,8 +131,6 @@ static std::optional<std::string> preprocessShader(EShLanguage stage, const std:
 }
 
 static std::optional<std::string> preprocessShader(const fs::path& path, std::string preCode, EShLanguage stage) {
-    log::info("a {} {}", path, (int)stage);
-
     auto source = readResourceFile(path);
     if (!source) {
         geode::log::error("could not find shader at path: {}", path);

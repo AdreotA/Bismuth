@@ -1,6 +1,16 @@
 #include <Geode/Geode.hpp>
 #include <Geode/modify/CCTextureAtlas.hpp>
 
+#define PROFILER_ENABLED
+
+#ifdef PROFILER_ENABLED
+#define PROFILER_PUSH(S) profiler::functionPush(S)
+#define PROFILER_POP() profiler::functionPop()
+#else
+#define PROFILER_PUSH(S)
+#define PROFILER_POP()
+#endif
+
 namespace profiler {
 
 void functionPush(const char* name);
@@ -45,8 +55,6 @@ void functionPop();
 #define PROFILER_HOOK_9(Ret_, Class_, Name_, A_, B_, C_, D_, E_, F_) \
     PROFILER_HOOK(Ret_, Class_, Name_, A_ a CM B_ b CM C_ c CM D_ d CM E_ e CM F_ f, a CM b CM c CM d CM e CM f)
 
-#define _PROFILER_HOOK(...) GEODE_INVOKE(GEODE_CONCAT(PROFILER_HOOK_, GEODE_NUMBER_OF_ARGS(__VA_ARGS__)), __VA_ARGS__)
-
 #define PROFILER_HOOK_VOID_2(Class_, Name_) \
     PROFILER_HOOK_VOID(Class_, Name_, , )
 #define PROFILER_HOOK_VOID_3(Class_, Name_, A_) \
@@ -62,4 +70,10 @@ void functionPop();
 #define PROFILER_HOOK_VOID_8(Class_, Name_, A_, B_, C_, D_, E_, F_) \
     PROFILER_HOOK_VOID(Class_, Name_, A_ a CM B_ b CM C_ c CM D_ d CM E_ e CM F_ f, a CM b CM c CM d CM e CM f)
 
+#ifdef PROFILER_ENABLED
+#define _PROFILER_HOOK(...) GEODE_INVOKE(GEODE_CONCAT(PROFILER_HOOK_, GEODE_NUMBER_OF_ARGS(__VA_ARGS__)), __VA_ARGS__)
 #define _PROFILER_HOOK_VOID(...) GEODE_INVOKE(GEODE_CONCAT(PROFILER_HOOK_VOID_, GEODE_NUMBER_OF_ARGS(__VA_ARGS__)), __VA_ARGS__)
+#else
+#define _PROFILER_HOOK(...)
+#define _PROFILER_HOOK_VOID(...)
+#endif

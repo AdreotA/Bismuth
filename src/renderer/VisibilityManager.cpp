@@ -75,7 +75,7 @@ volatile float maxX;
 volatile float maxY;
 
 void VisibilityManager::calculateVisibilitiesForCameraView(const CameraView& view) {
-    profiler::functionPush("VisibilityManager::calculateVisibilitiesForCameraView");
+    PROFILER_PUSH("VisibilityManager::calculateVisibilitiesForCameraView");
     clearObjectVisibilities();
 
     GroupManager& groupManager = Renderer::get()->getGroupManager();
@@ -160,7 +160,7 @@ void VisibilityManager::calculateVisibilitiesForCameraView(const CameraView& vie
 
         transformId++;
     }
-    profiler::functionPop();
+    PROFILER_POP();
 }
 
 void VisibilityManager::markAllObjectsVisible() {

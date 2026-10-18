@@ -62,11 +62,16 @@ class $modify(MyCCDisplayLinkDirector, cocos2d::CCDisplayLinkDirector) {
                 }
             );
         
-            for (auto [name, time] : functionsTime)
-                geode::log::info("- {} : {}ms", (const char*)name, (double)time / 1000000.0);
+            i32 functionSumTime = 0;
 
-            geode::log::info("Rendering time: {}ms", (double)gpuTime / 1000000.0);
-            geode::log::info("Processing time: {}ms", (double)processTime / 1000000.0);
+            for (auto [name, time] : functionsTime) {
+                geode::log::info("- {} : {}ms", (const char*)name, (double)time / 1000000.0);
+                functionSumTime += time;
+            }
+
+            geode::log::info("Functions time sum: {}ms", (double)functionSumTime / 1000000.0);
+            geode::log::info("GPU time: {}ms", (double)gpuTime / 1000000.0);
+            geode::log::info("CPU time: {}ms", (double)processTime / 1000000.0);
         }
     }
 };

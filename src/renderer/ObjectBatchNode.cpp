@@ -13,7 +13,10 @@ bool ObjectBatchNode::init() {
 }
 
 void ObjectBatchNode::draw() {
-    profiler::functionPush("ObjectBatchNode::draw");
+    if (!spriteSheetTexture)
+        return;
+
+    PROFILER_PUSH("ObjectBatchNode::draw");
     auto renderer = Renderer::get();
 
     auto shader = renderer->prepareDraw();
@@ -28,5 +31,5 @@ void ObjectBatchNode::draw() {
     renderer->getObjectBatch().draw(layerId);
 
     renderer->finishDraw();
-    profiler::functionPop();
+    PROFILER_POP();
 }
