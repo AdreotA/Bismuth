@@ -179,7 +179,16 @@ bool Renderer::init(PlayLayer* layer, CCArray* levelObjects) {
     debugTextOutline2->setScale(0.5);
     layer->addChild(debugTextOutline2, 999);
 
-    setZOrder(-2);
+    if (useOptimizations()) {
+        // I hope this doesn't cause any issues
+        for (auto& group : layer->m_optimizedGroups) {
+            if (group)
+                group->release();
+            group = nullptr;
+        }
+    }
+
+    setZOrder(-99999);
     setEnabled(true);
 
     rendererStartTime = getTime();

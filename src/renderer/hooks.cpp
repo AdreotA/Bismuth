@@ -130,9 +130,11 @@ class $modify(RendererGJBaseGameLayer, GJBaseGameLayer) {
             if (objects)
                 moveObjects(objects, node->m_unk038, node->m_unk040, 0);
 
-            objects = getOptimizedGroup(groupId);
-            if (objects)
-                moveObjects(objects, node->m_unk090, node->m_unk098, 0);
+            if (!renderer->useOptimizations()) {
+                objects = getOptimizedGroup(groupId);
+                if (objects)
+                    moveObjects(objects, node->m_unk090, node->m_unk098, 0);
+            }
         }
     }
 
