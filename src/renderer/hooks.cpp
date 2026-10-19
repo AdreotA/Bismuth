@@ -1,6 +1,7 @@
 #include "Geode/cocos/CCDirector.h"
 #include "Renderer.hpp"
 #include <decomp/PlayLayer.hpp>
+#include <decomp/GJBaseGameLayer.hpp>
 #include <BProfiler.hpp>
 
 using namespace geode::prelude;
@@ -138,7 +139,7 @@ class $modify(RendererGJBaseGameLayer, GJBaseGameLayer) {
         }
     }
 
-    void processRotationActions() {
+    void siphon_processRotationActions() {
         auto renderer = Renderer::get();
         if (renderer == nullptr) {
             GJBaseGameLayer::processRotationActions();
@@ -186,6 +187,19 @@ class $modify(RendererGJBaseGameLayer, GJBaseGameLayer) {
         }
 
         GJBaseGameLayer::processRotationActions();
+    }
+
+    void processRotationActions() {
+        auto renderer = Renderer::get();
+        if (renderer == nullptr) {
+            GJBaseGameLayer::processRotationActions();
+            return;
+        }
+
+        if (renderer->useOptimizations())
+            ((decomp_GJBaseGameLayer*)this)->optimized_processRotationActions();
+        else
+            siphon_processRotationActions();
     }
 
     void processFollowActions() {

@@ -123,6 +123,12 @@ public:
 
     inline bool hasGroupStateScaled(i32 index) { return haveGroupStatesScaled[index]; }
 
+    inline const std::set<GameObject*> getVanillaRotateGroup(GroupID id) {
+        return vanillaRotateGroups[id];
+    }
+
+    void fetchVanilaRotateGroups();
+
     void prepareGroupStateBuffer();
 
     //// TRIGGER ACTIONS ////
@@ -194,4 +200,11 @@ private:
     std::set<GroupID> alphaGroupIds;
 
     std::set<GroupID> disabledGroups;
+
+    /*
+        These are groups with objects that have to rotate
+        with vanilla code. Otherwise, it may cause physics
+        inconsistencies.
+    */
+    std::vector<std::set<GameObject*>> vanillaRotateGroups;
 };
