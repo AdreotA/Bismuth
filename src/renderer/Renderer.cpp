@@ -208,6 +208,10 @@ void Renderer::generateBatchNodes() {
         auto batchNode = ObjectBatchNode::create(id);
         if (batchNode) {
             auto node = getSpriteBatchNodeWithLayerId(id);
+            if (!node) {
+                log::warn("no sprite batch node found for layer {}, skipping", id.toString());
+                continue;
+            }
 
             layer->m_objectLayer->addChild(batchNode, node->getZOrder());
             batchNodes.push_back(batchNode);
